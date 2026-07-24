@@ -1,0 +1,108 @@
+{
+  "ruleSet": {
+    "name": "industry-sop-gap-closure",
+    "version": "1.0.0",
+    "status": "active",
+    "region": null,
+    "description": "Rules closing genuine gaps against standard telecom NOC / ITIL industry SOPs, identified by auditing the existing rule base (all 6 merged packs) rather than assumed. Three of the four action fields used here (escalateVendor, regulatoryReportingRequired, regulatoryReportingDeadlineHours) were already declared in the original 35-rule base pack's vocabulary but never actually triggered by any rule -- these rules fill that in. See docs/industry-sop-gap-closure.md for the full audit."
+  },
+  "rules": [
+    {
+      "ruleCode": "SOP-VEN-001",
+      "name": "Vendor-Attributed Root Cause Escalation (Underpinning Contract)",
+      "family": "OPERATIONAL_FEASIBILITY",
+      "familyOrder": 5,
+      "description": "Root cause has been attributed to a vendor-supplied component covered by an Underpinning Contract (UPC); standard vendor-management SOP is to escalate through the vendor's contractual support channel with its own response-time clock, rather than routing to internal engineering alone. The action field this writes, escalateVendor, was already declared in the base rule pack's vocabulary but no rule ever set it.",
+      "priorityWeight": 55,
+      "severityBand": null,
+      "contributionScore": 12,
+      "conflictGroup": null,
+      "conflictsWith": [],
+      "isSuppressor": false,
+      "nonSuppressible": false,
+      "cooldownMinutes": 0,
+      "conditions": {
+        "and": [
+          { "==": [{ "var": "rootCauseVendorAttributed" }, true] },
+          { "==": [{ "var": "vendorContractHasUpc" }, true] }
+        ]
+      },
+      "exceptions": null,
+      "actions": {
+        "escalateVendor": true,
+        "vendorEscalationChannel": "upc_priority_queue",
+        "vendorResponseDeadlineMinutes": 60,
+        "notifyNOC": true
+      },
+      "mitigations": {},
+      "sequencing": null,
+      "slaTarget": null,
+      "ruleStatus": "ACTIVE"
+    },
+    {
+      "ruleCode": "SOP-CHG-001",
+      "name": "Change Freeze Violation",
+      "family": "TEMPORAL",
+      "familyOrder": 4,
+      "description": "A change linked to this incident was made during a declared change-freeze window (e.g. holiday freeze, peak-event blackout) without emergency-change approval -- a change-freeze policy violation under standard ITIL/CAB governance, distinct from the existing unapproved-maintenance rules (which fire on changeApproved==false; a freeze violation can occur even with normal approval, since a freeze requires additional emergency sign-off beyond the standard approval process). Requires Change Advisory Board review; priority is floored at High regardless of technical severity, since the freeze violation itself is an operational governance failure worth surfacing on its own.",
+      "priorityWeight": 50,
+      "severityBand": null,
+      "contributionScore": 15,
+      "conflictGroup": null,
+      "conflictsWith": [],
+      "isSuppressor": false,
+      "nonSuppressible": false,
+      "cooldownMinutes": 0,
+      "conditions": {
+        "and": [
+          { "==": [{ "var": "changeFreezeActive" }, true] },
+          { "==": [{ "var": "changeLinkedToIncident" }, true] },
+          { "==": [{ "var": "changeEmergencyApproved" }, false] }
+        ]
+      },
+      "exceptions": null,
+      "actions": {
+        "changeFreezeViolation": true,
+        "escalateChangeAdvisoryBoard": true,
+        "notifyNOC": true,
+        "priorityFloor": "High"
+      },
+      "mitigations": {},
+      "sequencing": null,
+      "slaTarget": null,
+      "ruleStatus": "ACTIVE"
+    },
+    {
+      "ruleCode": "SOP-REG-001",
+      "name": "Mass Regional Outage -- Regulatory Reporting Threshold",
+      "family": "SAFETY_REGULATORY",
+      "familyOrder": 1,
+      "description": "Estimated user-minutes of impact (affected users x outage duration) crosses the mass-outage regulatory reporting threshold used by major telecom regulators (e.g. FCC NORS-style 900,000 user-minutes, and comparable Ofcom/TRAI thresholds), independent of whether emergency services are affected. R008/R020 already cover the emergency-services-line trigger for regulatoryReportingRequired; this closes the separate, broader mass-outage-scale trigger the base pack's own vocabulary anticipated (regulatoryReportingDeadlineHours already exists as a field, used here for the standard 24-hour reporting window) but never populated for this case. Formal regulatory reporting is required; priority is nudged up one level (not force-set), consistent with how R013/R016-style modifiers already behave.",
+      "priorityWeight": 92,
+      "severityBand": null,
+      "contributionScore": 20,
+      "conflictGroup": null,
+      "conflictsWith": [],
+      "isSuppressor": false,
+      "nonSuppressible": true,
+      "cooldownMinutes": 0,
+      "conditions": {
+        "and": [
+          { ">=": [{ "*": [{ "var": "affectedUsers" }, { "var": "outageDurationMinutes" }] }, 900000] },
+          { "==": [{ "var": "serviceImpact" }, true] }
+        ]
+      },
+      "exceptions": null,
+      "actions": {
+        "regulatoryReportingRequired": true,
+        "regulatoryReportingDeadlineHours": 24,
+        "notifyNOC": true,
+        "priorityBumpOneLevel": true
+      },
+      "mitigations": {},
+      "sequencing": null,
+      "slaTarget": null,
+      "ruleStatus": "ACTIVE"
+    }
+  ]
+}

@@ -1,0 +1,253 @@
+{
+  "ruleSetVersion": "1.0.0",
+  "domain": "telecom_network_incident_prioritization",
+  "description": "Customer & SLA rules used to score and prioritize incoming network incidents based on affected customer tier, contractual SLA, and business impact.",
+
+  "referenceData": {
+    "customerTiers": ["PLATINUM", "GOLD", "SILVER", "BRONZE", "RESIDENTIAL"],
+    "networkLayers": ["CORE", "TRANSPORT", "ACCESS", "CPE"],
+    "incidentSeverity": ["SEV1_CRITICAL", "SEV2_MAJOR", "SEV3_MINOR", "SEV4_INFORMATIONAL"]
+  },
+
+  "rules": [
+    {
+      "id": "SLA-RULE-001",
+      "name": "Platinum Tier Critical Escalation",
+      "description": "Any incident affecting a Platinum-tier customer's core service is auto-escalated regardless of raw severity score",
+      "type": "compound_conditional",
+      "priority": 1,
+      "enabled": true,
+      "conditions": [
+        { "field": "customerTier", "operator": "equals", "value": "PLATINUM" },
+        { "field": "affectedLayer", "operator": "in", "value": ["CORE", "TRANSPORT"] }
+      ],
+      "logicalOperator": "AND",
+      "onMatch": {
+        "outcome": "ESCALATE",
+        "priorityScore": 100,
+        "slaResponseMinutes": 15,
+        "slaResolutionMinutes": 240,
+        "reason": "Platinum customer impacted at {affectedLayer} layer — auto-escalated to P1"
+      },
+      "onNoMatch": {
+        "outcome": "CONTINUE",
+        "reason": "Not a Platinum core/transport incident"
+      }
+    },
+    {
+      "id": "SLA-RULE-002",
+      "name": "Customer Tier Base Weight",
+      "description": "Assigns a base priority weight according to customer tier",
+      "type": "string_matching",
+      "priority": 2,
+      "enabled": true,
+      "conditions": [
+        { "field": "customerTier", "operator": "in", "value": ["PLATINUM", "GOLD", "SILVER", "BRONZE", "RESIDENTIAL"] }
+      ],
+      "logicalOperator": "AND",
+      "weightTable": {
+        "PLATINUM": 40,
+        "GOLD": 30,
+        "SILVER": 20,
+        "BRONZE": 10,
+        "RESIDENTIAL": 5
+      },
+      "onMatch": {
+        "outcome": "SCORE_ADJUST",
+        "reason": "Base weight applied for {customerTier} tier"
+      },
+      "onNoMatch": {
+        "outcome": "FAIL",
+        "reason": "Unknown customer tier '{customerTier}'"
+      }
+    },
+    {
+      "id": "SLA-RULE-003",
+      "name": "Affected Customer Count Multiplier",
+      "description": "Incidents impacting a large number of customers receive a scaling multiplier",
+      "type": "numeric_comparison",
+      "priority": 3,
+      "enabled": true,
+      "conditions": [
+        { "field": "affectedCustomerCount", "operator": "greaterThanOrEqual", "value": 1000 }
+      ],
+      "logicalOperator": "AND",
+      "onMatch": {
+        "outcome": "SCORE_ADJUST",
+        "weight": 35,
+        "reason": "Mass outage impacting {affectedCustomerCount} customers"
+      },
+      "onNoMatch": {
+        "outcome": "SCORE_ADJUST",
+        "weight": 0,
+        "reason": "Affected customer count below mass-outage threshold"
+      }
+    },
+    {
+      "id": "SLA-RULE-004",
+      "name": "Contractual SLA Breach Risk",
+      "description": "Flags incidents at risk of breaching the customer's contracted SLA response window",
+      "type": "date_comparison",
+      "priority": 4,
+      "enabled": true,
+      "conditions": [
+        { "field": "minutesSinceIncidentOpened", "operator": "greaterThanOrEqual", "value": "slaResponseMinutes * 0.8" }
+      ],
+      "logicalOperator": "AND",
+      "onMatch": {
+        "outcome": "ESCALATE",
+        "weight": 25,
+        "reason": "Incident at 80% of SLA response window ({minutesSinceIncidentOpened} min elapsed) — imminent breach risk"
+      },
+      "onNoMatch": {
+        "outcome": "SCORE_ADJUST",
+        "weight": 0,
+        "reason": "Within safe SLA response window"
+      }
+    },
+    {
+      "id": "SLA-RULE-005",
+      "name": "Business-Critical Service Type",
+      "description": "Boosts priority for services tied to business-critical customer operations (e.g. enterprise leased lines, hospital connectivity)",
+      "type": "boolean_condition",
+      "priority": 5,
+      "enabled": true,
+      "conditions": [
+        { "field": "isBusinessCriticalService", "operator": "equals", "value": true }
+      ],
+      "logicalOperator": "AND",
+      "onMatch": {
+        "outcome": "SCORE_ADJUST",
+        "weight": 20,
+        "reason": "Service flagged as business-critical for this customer"
+      },
+      "onNoMatch": {
+        "outcome": "SKIP",
+        "reason": "Not a business-critical service"
+      }
+    },
+    {
+      "id": "SLA-RULE-006",
+      "name": "Repeat Incident Penalty",
+      "description": "Increases priority for customers with repeated unresolved incidents within a rolling window, to prevent chronic issues being deprioritized",
+      "type": "numeric_comparison",
+      "priority": 6,
+      "enabled": true,
+      "conditions": [
+        { "field": "incidentCountLast30Days", "operator": "greaterThanOrEqual", "value": 3 }
+      ],
+      "logicalOperator": "AND",
+      "onMatch": {
+        "outcome": "SCORE_ADJUST",
+        "weight": 15,
+        "reason": "Customer has {incidentCountLast30Days} incidents in the last 30 days — chronic issue flag"
+      },
+      "onNoMatch": {
+        "outcome": "SCORE_ADJUST",
+        "weight": 0,
+        "reason": "No repeat-incident pattern detected"
+      }
+    },
+    {
+      "id": "SLA-RULE-007",
+      "name": "Maintenance Window Suppression",
+      "description": "Suppresses or downgrades incident priority if it falls within a pre-approved planned maintenance window",
+      "type": "compound_conditional",
+      "priority": 7,
+      "enabled": true,
+      "conditions": [
+        { "field": "isDuringPlannedMaintenance", "operator": "equals", "value": true },
+        { "field": "customerTier", "operator": "notEquals", "value": "PLATINUM" }
+      ],
+      "logicalOperator": "AND",
+      "onMatch": {
+        "outcome": "SUPPRESS",
+        "weight": -100,
+        "reason": "Incident occurred during approved maintenance window — suppressed for non-Platinum customer"
+      },
+      "onNoMatch": {
+        "outcome": "CONTINUE",
+        "reason": "Not eligible for maintenance-window suppression"
+      }
+    },
+    {
+      "id": "SLA-RULE-008",
+      "name": "Regulatory / Emergency Service Line",
+      "description": "Hard override for incidents affecting emergency services or regulatory-mandated lines (e.g. E911, public safety)",
+      "type": "boolean_condition",
+      "priority": 0,
+      "enabled": true,
+      "conditions": [
+        { "field": "isEmergencyServiceLine", "operator": "equals", "value": true }
+      ],
+      "logicalOperator": "AND",
+      "onMatch": {
+        "outcome": "ESCALATE",
+        "priorityScore": 100,
+        "slaResponseMinutes": 5,
+        "slaResolutionMinutes": 60,
+        "reason": "Emergency/regulatory service line affected — mandatory SEV1 override, bypasses all other scoring"
+      },
+      "onNoMatch": {
+        "outcome": "CONTINUE",
+        "reason": "Not an emergency/regulatory line"
+      }
+    }
+  ],
+
+  "slaMatrix": {
+    "description": "Default response/resolution targets by customer tier and derived severity, used when a rule does not explicitly override slaResponseMinutes/slaResolutionMinutes",
+    "PLATINUM": {
+      "SEV1_CRITICAL": { "responseMinutes": 15, "resolutionMinutes": 240 },
+      "SEV2_MAJOR": { "responseMinutes": 30, "resolutionMinutes": 480 },
+      "SEV3_MINOR": { "responseMinutes": 120, "resolutionMinutes": 1440 },
+      "SEV4_INFORMATIONAL": { "responseMinutes": 480, "resolutionMinutes": 4320 }
+    },
+    "GOLD": {
+      "SEV1_CRITICAL": { "responseMinutes": 30, "resolutionMinutes": 360 },
+      "SEV2_MAJOR": { "responseMinutes": 60, "resolutionMinutes": 720 },
+      "SEV3_MINOR": { "responseMinutes": 240, "resolutionMinutes": 2160 },
+      "SEV4_INFORMATIONAL": { "responseMinutes": 960, "resolutionMinutes": 5760 }
+    },
+    "SILVER": {
+      "SEV1_CRITICAL": { "responseMinutes": 60, "resolutionMinutes": 480 },
+      "SEV2_MAJOR": { "responseMinutes": 120, "resolutionMinutes": 1440 },
+      "SEV3_MINOR": { "responseMinutes": 480, "resolutionMinutes": 2880 },
+      "SEV4_INFORMATIONAL": { "responseMinutes": 1440, "resolutionMinutes": 7200 }
+    },
+    "BRONZE": {
+      "SEV1_CRITICAL": { "responseMinutes": 120, "resolutionMinutes": 720 },
+      "SEV2_MAJOR": { "responseMinutes": 240, "resolutionMinutes": 1920 },
+      "SEV3_MINOR": { "responseMinutes": 720, "resolutionMinutes": 4320 },
+      "SEV4_INFORMATIONAL": { "responseMinutes": 2880, "resolutionMinutes": 10080 }
+    },
+    "RESIDENTIAL": {
+      "SEV1_CRITICAL": { "responseMinutes": 240, "resolutionMinutes": 1440 },
+      "SEV2_MAJOR": { "responseMinutes": 480, "resolutionMinutes": 2880 },
+      "SEV3_MINOR": { "responseMinutes": 1440, "resolutionMinutes": 7200 },
+      "SEV4_INFORMATIONAL": { "responseMinutes": 4320, "resolutionMinutes": 14400 }
+    }
+  },
+
+  "decisionThresholds": {
+    "priorityBands": {
+      "SEV1_CRITICAL": { "minScore": 80 },
+      "SEV2_MAJOR": { "minScore": 50, "maxScore": 79 },
+      "SEV3_MINOR": { "minScore": 20, "maxScore": 49 },
+      "SEV4_INFORMATIONAL": { "maxScore": 19 }
+    }
+  },
+
+  "conflictResolution": {
+    "strategy": "priorityThenOutcomeOverride",
+    "description": "Rules evaluated in ascending 'priority' order. An ESCALATE outcome with an explicit priorityScore short-circuits and overrides the accumulated additive score. A SUPPRESS outcome zeroes out further additive scoring unless a subsequent ESCALATE rule (e.g. emergency line) overrides it. Priority 0 rules (regulatory/emergency) always evaluate first and can bypass all other logic."
+  },
+
+  "explainabilityTemplate": {
+    "rulesEvaluated": "list of all rule IDs checked",
+    "rulesMatched": "list of rule IDs whose conditions were satisfied",
+    "rulesRejected": "list of rule IDs whose conditions failed",
+    "finalDecision": "resulting severity band + SLA targets",
+    "humanReadableExplanation": "concatenation of each matched rule's 'reason' field with substituted field values"
+  }
+}
