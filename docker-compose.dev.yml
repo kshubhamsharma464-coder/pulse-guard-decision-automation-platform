@@ -1,0 +1,43 @@
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    image: teledecision-orchestrator:dev
+    ports:
+      - "${PORT:-8000}:8000"
+    environment:
+      PYTHONUNBUFFERED: "1"
+      PERSISTENCE_BACKEND: "${PERSISTENCE_BACKEND:-postgres}"
+      DATABASE_URL: "postgresql+psycopg2://decisiox:decisiox@db:5432/decisiox"
+    volumes:
+      - ./app:/app/app
+      - ./tests:/app/tests
+      - ./migrations:/app/migrations
+      - ./scripts:/app/scripts
+      - ./alembic.ini:/app/alembic.ini
+    depends_on:
+      db:
+        condition: service_healthy
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: decisiox
+      POSTGRES_PASSWORD: decisiox
+      POSTGRES_DB: decisiox
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - decisiox_pgdata_dev:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U decisiox -d decisiox"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  decisiox_pgdata_dev:

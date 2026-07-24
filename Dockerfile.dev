@@ -1,0 +1,24 @@
+# TeleDecision Orchestrator -- development image
+#
+# Unlike Dockerfile (production), this installs test dependencies too and
+# runs uvicorn with --reload against a bind-mounted source tree (see
+# docker-compose.dev.yml), so code edits on the host take effect without
+# rebuilding the image.
+
+FROM python:3.11-slim
+
+WORKDIR /app
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1
+
+# Source is bind-mounted at runtime by docker-compose.dev.yml; this COPY is
+# just a fallback so `docker build` alone still produces a runnable image.
+COPY . .
+
+EXPOSE 8000
+
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
