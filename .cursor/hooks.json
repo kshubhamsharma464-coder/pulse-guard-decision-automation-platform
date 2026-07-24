@@ -1,0 +1,30 @@
+{
+  "version": 1,
+  "hooks": {
+    "sessionStart": [
+      {
+        "command": "node .cursor/hooks/log_writer.mjs session_start"
+      }
+    ],
+    "beforeSubmitPrompt": [
+      {
+        "command": "node .cursor/hooks/log_writer.mjs prompt"
+      }
+    ],
+    "postToolUse": [
+      {
+        "command": "node .cursor/hooks/log_writer.mjs tool_use"
+      }
+    ],
+    "afterAgentResponse": [
+      {
+        "command": "node .cursor/hooks/log_writer.mjs response"
+      }
+    ],
+    "sessionEnd": [
+      {
+        "command": "node .cursor/hooks/log_writer.mjs session_end"
+      }
+    ]
+  }
+}
