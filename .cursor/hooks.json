@@ -16,6 +16,11 @@
         "command": "py -3.14 .cursor/hooks/log_writer.py tool_use"
       }
     ],
+    "postToolUseFailure": [
+      {
+        "command": "py -3.14 .cursor/hooks/log_writer.py tool_failure"
+      }
+    ],
     "afterAgentResponse": [
       {
         "command": "py -3.14 .cursor/hooks/log_writer.py response"

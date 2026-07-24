@@ -4,45 +4,47 @@ PulseGuard is an enterprise Decision Automation Platform enabling configurable r
 
 ## AI Engineering Log
 
-This project maintains a narrative **AI Engineering Log** — documenting how Cursor AI was leveraged as a true **Pair Programming** partner, adhering to **Enterprise Engineering Standards** (Clean Architecture, SOLID principles, and comprehensive test coverage).
+This project maintains a structured **AI Engineering Log** documenting how Cursor AI was used as a **Pair Programming** partner under **Enterprise Engineering Standards**.
 
-### Log files
+### Log file
 
 | File | Purpose |
 |------|---------|
-| [`AI_ENGINEERING_LOG.md`](AI_ENGINEERING_LOG.md) | Narrative log with Challenge / AI Intervention sections (like a hackathon engineering diary) |
-| [`logs/ai-engineering-log.jsonl`](logs/ai-engineering-log.jsonl) | Structured source of truth (one JSON object per line) |
+| [`AI_ENGINEERING_LOG.md`](AI_ENGINEERING_LOG.md) | Human-readable log with six audit categories |
+| [`logs/ai-engineering-log.jsonl`](logs/ai-engineering-log.jsonl) | Structured source of truth |
+
+### Six log categories
+
+| Section | What is captured |
+|---------|------------------|
+| **AI Tools Used** | Grep, Write, Shell, Task, MCP, ReadLints, etc. |
+| **Key Prompts Provided** | Every user prompt with timestamp |
+| **AI-Generated Code Accepted** | Files AI wrote that were kept (validated or session-end acceptance) |
+| **AI-Generated Code Rejected or Modified** | Prompts like "no, use Python instead" or AI re-edits same file |
+| **How AI Outputs Were Validated** | Test runs, lint checks, manual "verify/test" prompts |
+| **Bugs & Resolutions** | Shell failures, tool errors, user bug reports + fixes |
 
 ### How it works
 
-Python Cursor hooks in [`.cursor/hooks.json`](.cursor/hooks.json) call [`.cursor/hooks/log_writer.py`](.cursor/hooks/log_writer.py) after each AI action:
+Python Cursor hooks in [`.cursor/hooks.json`](.cursor/hooks.json) call [`.cursor/hooks/log_writer.py`](.cursor/hooks/log_writer.py) on every AI action.
 
-1. Appends a structured event to `logs/ai-engineering-log.jsonl`
-2. Regenerates `AI_ENGINEERING_LOG.md` in narrative format
+**Requirements:** Python 3.14+ (`py -3.14` on Windows).
 
-**Requirements:** Python 3.14+ (hooks use `py -3.14` on Windows).
+### Manual entries
 
-### Example narrative section
-
-```markdown
-## 1. AI Engineering Log & Audit Trail
-
-**Challenge**: Help me create a plan to implement a new feature: AI Engineering Log
-**AI Intervention**:
-- Utilized **Grep** to search the codebase for `engineering log` (0 matches).
-- Authored `.cursor/hooks/log_writer.py` adhering to enterprise engineering standards.
-- Dynamically shifted to **DevOps mode** — executed `py -3.14 scripts/regenerate_log_summary.py`.
-```
-
-### Manual rebuild & test
+Log rejections, validations, or bug resolutions manually:
 
 ```bash
-py -3.14 scripts/regenerate_log_summary.py
-py -3.14 scripts/test_ai_log.py
+py -3.14 scripts/log_manual_entry.py rejected --file ".cursor/hooks/log_writer.mjs" --reason "Switched to Python hooks"
+py -3.14 scripts/log_manual_entry.py validation --reason "Reviewed AI_ENGINEERING_LOG.md format manually"
+py -3.14 scripts/log_manual_entry.py resolution --reason "Wrong section titles" --resolution "Fixed prompt keyword priority"
 ```
 
-### Notes
+### Test & rebuild
 
-- Secrets in shell commands and prompts are redacted before writing.
-- Hook failures do not block AI agent work (fail-open design).
-- Restart Cursor after cloning if hooks do not load immediately.
+```bash
+py -3.14 scripts/test_ai_log.py
+py -3.14 scripts/regenerate_log_summary.py
+```
+
+Restart Cursor after cloning if hooks do not load immediately.

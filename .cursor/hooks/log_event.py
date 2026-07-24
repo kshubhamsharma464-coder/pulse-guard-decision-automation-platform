@@ -1,4 +1,4 @@
-"""AI Engineering Log — event schema, redaction, and narrative Markdown generation."""
+"""AI Engineering Log — event schema, classification, and structured Markdown generation."""
 
 from __future__ import annotations
 
@@ -28,14 +28,23 @@ REDACTION_PATTERNS = [
     (re.compile(r"(?i)(password|passwd|secret|token|api_key|apikey)\s*:\s*\S+"), r"\1: [REDACTED]"),
 ]
 
-SECTION_THEMES: list[tuple[str, re.Pattern[str], str]] = [
-    ("Bootstrapping Clean Architecture", re.compile(r"\b(architecture|entity|domain|repository|interface|clean arch|use case|solid)\b", re.I), "architecture"),
-    ("Strategy Pattern & Rule Engine Design", re.compile(r"\b(strategy|pattern|operator|rule engine|open.?closed|evaluat)\b", re.I), "patterns"),
-    ("Advanced Debugging & Infrastructure Operations", re.compile(r"\b(docker|port|debug|lsof|kill|infra|deploy|compose|shell|network)\b", re.I), "debugging"),
-    ("Security Enhancements (JWT & Key Management)", re.compile(r"\b(jwt|rsa|auth|security|private\.pem|token|oauth|key)\b", re.I), "security"),
-    ("Test Coverage & Quality Assurance", re.compile(r"\b(test|coverage|pytest|spec|tdd|quality)\b", re.I), "testing"),
-    ("AI Engineering Log & Audit Trail", re.compile(r"\b(engineering log|audit|logging|hook|trace)\b", re.I), "logging"),
-]
+REJECTION_PROMPT = re.compile(
+    r"\b(no[,]?|instead|don't|dont|wrong|incorrect|not what i|use python|use node|"
+    r"change to|modify|revert|reject|different approach|not like this|don't want)\b",
+    re.I,
+)
+BUG_PROMPT = re.compile(
+    r"\b(bug|error|broken|fail(ed|ure|s)?|issue|doesn't work|does not work|"
+    r"not working|crash|exception|fix the|fix this|introduced)\b",
+    re.I,
+)
+VALIDATION_PROMPT = re.compile(r"\b(test if|verify|validate|check if|make sure|run test|ensure)\b", re.I)
+VALIDATION_SHELL = re.compile(
+    r"\b(pytest|unittest|npm test|yarn test|jest|vitest|lint|ruff|eslint|mypy|"
+    r"regenerate|test_ai_log|test\.py|verify|validate)\b",
+    re.I,
+)
+LINT_TOOLS = {"ReadLints"}
 
 
 @dataclass
@@ -87,6 +96,14 @@ def redact_secrets(text: str) -> str:
     return result
 
 
+def format_timestamp(timestamp: str) -> str:
+    try:
+        dt = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+        return dt.strftime("%Y-%m-%d %H:%M UTC")
+    except ValueError:
+        return timestamp
+
+
 def ensure_log_dir() -> None:
     JSONL_PATH.parent.mkdir(parents=True, exist_ok=True)
 
@@ -110,25 +127,8 @@ def read_all_events() -> list[LogEvent]:
 def append_jsonl_line(line: str) -> None:
     ensure_log_dir()
     with JSONL_PATH.open("a", encoding="utf-8") as handle:
-        if sys.platform == "win32":
-            import msvcrt
-
-            msvcrt.locking(handle.fileno(), msvcrt.LK_LOCK, 1)
-            try:
-                handle.write(line + "\n")
-                handle.flush()
-            finally:
-                handle.seek(0, 2)
-                msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
-        else:
-            import fcntl
-
-            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
-            try:
-                handle.write(line + "\n")
-                handle.flush()
-            finally:
-                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+        handle.write(line + "\n")
+        handle.flush()
 
 
 def append_event(event: LogEvent) -> None:
@@ -149,104 +149,153 @@ def save_session_state(state: dict[str, Any]) -> None:
     SESSION_STATE_PATH.write_text(json.dumps(state, indent=2), encoding="utf-8")
 
 
-def _infer_section_title(prompt_text: str, interventions: list[LogEvent]) -> str:
-    for title, pattern, _ in SECTION_THEMES:
-        if pattern.search(prompt_text):
-            return title
-
-    combined = prompt_text + " " + " ".join(e.summary for e in interventions)
-    for title, pattern, _ in SECTION_THEMES:
-        if pattern.search(combined):
-            return title
-
-    cleaned = re.sub(r"^(please|help me|can you|i want to|lets|let's)\s+", "", prompt_text.strip(), flags=re.I)
-    cleaned = re.sub(r"\?$", "", cleaned).strip()
-    if len(cleaned) <= 60:
-        return cleaned[0].upper() + cleaned[1:] if cleaned else "AI-Assisted Development Session"
-    return truncate_text(cleaned, 60)
-
-
-def _intervention_bullet(event: LogEvent) -> str | None:
+def _tool_from_event(event: LogEvent) -> str | None:
     details = event.details
     if event.event_type == "search":
-        tool = details.get("tool", "Search")
-        query = details.get("query", "")
-        count = details.get("match_count")
-        suffix = f" ({count} matches)" if count is not None else ""
-        return f"Utilized **{tool}** to search the codebase for `{query}`{suffix}."
-    if event.event_type == "read":
-        path = details.get("file_path", "unknown")
-        return f"Inspected `{path}` to understand existing architecture, conventions, and dependencies."
+        return details.get("tool")
     if event.event_type == "edit":
-        path = details.get("file_path", "unknown")
-        op = details.get("operation", "update")
-        verb = {"create": "Authored", "delete": "Removed", "update": "Refactored"}.get(op, "Updated")
-        return f"{verb} `{path}` adhering to enterprise engineering standards."
-    if event.event_type == "shell":
-        cmd = details.get("command", "")
-        return f"Dynamically shifted to **DevOps mode** — executed `{cmd}` to diagnose and resolve infrastructure issues."
+        return details.get("tool")
     if event.event_type == "task":
-        agent = details.get("subagent_type", "autonomous")
-        desc = details.get("description", "explore the codebase")
-        return f"Deployed an **{agent}** subagent to {desc}."
+        return f"Task ({details.get('subagent_type', 'subagent')})"
     if event.event_type == "mcp":
-        server = details.get("server", "external")
-        tool = details.get("tool_name", "tool")
-        return f"Integrated with **{server}** via MCP tool `{tool}`."
-    if event.event_type == "response":
-        summary = details.get("summary", event.summary)
-        return f"Delivered structured guidance: _{truncate_text(summary, 160)}_"
+        return f"MCP:{details.get('server', '?')}/{details.get('tool_name', '?')}"
     if event.event_type == "tool":
-        tool = details.get("tool", "tool")
-        return f"Invoked `{tool}` as part of the implementation workflow."
+        return details.get("tool")
+    if event.event_type in {"shell", "validation", "tool_failure"}:
+        return "Shell"
+    if event.event_type == "read":
+        return "Read"
     return None
 
 
-@dataclass
-class NarrativeSection:
-    challenge: str
-    interventions: list[str]
-    title: str
-
-
-def _build_sections(events: list[LogEvent]) -> list[NarrativeSection]:
-    sections: list[NarrativeSection] = []
-    current_prompt = ""
-    current_interventions: list[LogEvent] = []
-
-    def flush() -> None:
-        nonlocal current_prompt, current_interventions
-        if not current_prompt and not current_interventions:
-            return
-        bullets: list[str] = []
-        for event in current_interventions:
-            bullet = _intervention_bullet(event)
-            if bullet and bullet not in bullets:
-                bullets.append(bullet)
-        if current_prompt or bullets:
-            title = _infer_section_title(current_prompt or "Development session", current_interventions)
-            challenge = current_prompt or "Continuous AI-assisted engineering on the PulseGuard platform."
-            sections.append(NarrativeSection(challenge=challenge, interventions=bullets, title=title))
-        current_prompt = ""
-        current_interventions = []
-
+def _collect_ai_tools(events: list[LogEvent]) -> list[str]:
+    counts: Counter[str] = Counter()
     for event in events:
         if event.event_type in {"session_start", "session_end"}:
             continue
-        if event.event_type == "prompt":
-            flush()
-            current_prompt = event.details.get("message") or event.summary
-        else:
-            current_interventions.append(event)
+        tool = _tool_from_event(event)
+        if tool:
+            counts[tool] += 1
+    lines: list[str] = []
+    for tool, count in counts.most_common():
+        uses = "use" if count == 1 else "uses"
+        lines.append(f"- **{tool}** — {count} {uses}")
+    return lines or ["- _No AI tools recorded yet._"]
 
-    flush()
-    return sections
+
+def _collect_key_prompts(events: list[LogEvent]) -> list[str]:
+    lines: list[str] = []
+    index = 1
+    for event in events:
+        if event.event_type != "prompt":
+            continue
+        message = event.details.get("message") or event.summary
+        ts = format_timestamp(event.timestamp)
+        lines.append(f"{index}. *{ts}* — \"{message}\"")
+        index += 1
+    return lines or ["- _No prompts recorded yet._"]
+
+
+def _collect_code_accepted(events: list[LogEvent]) -> list[str]:
+    lines: list[str] = []
+    for event in events:
+        if event.event_type == "code_accepted":
+            path = event.details.get("file_path", "unknown")
+            ts = format_timestamp(event.timestamp)
+            tool = event.details.get("tool", "Write")
+            lines.append(f"- `{path}` — accepted via **{tool}** ({ts})")
+            if event.details.get("validation"):
+                lines.append(f"  - Validated by: {event.details['validation']}")
+        elif event.event_type == "edit" and event.details.get("code_status") in {"accepted", "validated"}:
+            path = event.details.get("file_path", "unknown")
+            op = event.details.get("operation", "update")
+            ts = format_timestamp(event.timestamp)
+            tool = event.details.get("tool", "Write")
+            lines.append(f"- `{path}` — {op} via **{tool}** ({ts})")
+            if event.details.get("validation"):
+                lines.append(f"  - Validated by: {event.details['validation']}")
+    return lines or ["- _No accepted AI-generated code recorded yet._"]
+
+
+def _collect_code_rejected(events: list[LogEvent]) -> list[str]:
+    lines: list[str] = []
+    for event in events:
+        if event.event_type == "edit" and event.details.get("code_status") in {"rejected", "modified"}:
+            path = event.details.get("file_path", "unknown")
+            status = event.details.get("code_status")
+            reason = event.details.get("rejection_reason") or event.details.get("modification_reason") or "User requested changes"
+            ts = format_timestamp(event.timestamp)
+            label = "Rejected" if status == "rejected" else "Modified"
+            lines.append(f"- `{path}` — **{label}** ({ts})")
+            lines.append(f"  - **Reason:** {reason}")
+        elif event.event_type == "code_rejection":
+            path = event.details.get("file_path", "unknown")
+            reason = event.details.get("reason", "User rejected AI output")
+            ts = format_timestamp(event.timestamp)
+            lines.append(f"- `{path}` — **Rejected** ({ts})")
+            lines.append(f"  - **Reason:** {reason}")
+    return lines or ["- _No rejected or modified AI code recorded yet._"]
+
+
+def _collect_validations(events: list[LogEvent]) -> list[str]:
+    lines: list[str] = []
+    seen: set[str] = set()
+    for event in events:
+        if event.event_type == "validation":
+            desc = event.details.get("description") or event.summary
+            if desc in seen:
+                continue
+            seen.add(desc)
+            method = event.details.get("method", "manual")
+            outcome = event.details.get("outcome", "completed")
+            ts = format_timestamp(event.timestamp)
+            lines.append(f"- *{ts}* — **{method}**: {desc} → _{outcome}_")
+        elif event.event_type == "shell" and event.details.get("is_validation"):
+            cmd = event.details.get("command", "")
+            if cmd in seen:
+                continue
+            seen.add(cmd)
+            exit_code = event.details.get("exit_code")
+            outcome = "passed" if exit_code in (0, None) else f"failed (exit {exit_code})"
+            ts = format_timestamp(event.timestamp)
+            lines.append(f"- *{ts}* — **Test/Lint run**: `{cmd}` → _{outcome}_")
+        elif event.event_type == "prompt" and event.details.get("is_validation_request"):
+            ts = format_timestamp(event.timestamp)
+            message = event.details.get("message") or event.summary
+            lines.append(f"- *{ts}* — **Manual validation request**: \"{truncate_text(message, 120)}\"")
+    return lines or ["- _No validation activity recorded yet._"]
+
+
+def _collect_bugs_and_resolutions(events: list[LogEvent]) -> list[str]:
+    lines: list[str] = []
+    for event in events:
+        if event.event_type == "ai_bug":
+            issue = event.details.get("issue") or event.summary
+            ts = format_timestamp(event.timestamp)
+            source = event.details.get("source", "unknown")
+            lines.append(f"- *{ts}* — **Issue** ({source}): {issue}")
+            resolution = event.details.get("resolution")
+            if resolution:
+                lines.append(f"  - **Resolution:** {resolution}")
+        elif event.event_type == "bug_resolution":
+            ts = format_timestamp(event.timestamp)
+            issue = event.details.get("issue", "Unknown issue")
+            resolution = event.details.get("resolution") or event.summary
+            lines.append(f"- *{ts}* — **Issue:** {issue}")
+            lines.append(f"  - **Resolution:** {resolution}")
+        elif event.event_type == "tool_failure":
+            tool = event.details.get("tool", "tool")
+            error = event.details.get("error") or event.summary
+            ts = format_timestamp(event.timestamp)
+            lines.append(f"- *{ts}* — **Tool failure** ({tool}): {truncate_text(error, 160)}")
+            resolution = event.details.get("resolution")
+            if resolution:
+                lines.append(f"  - **Resolution:** {resolution}")
+    return lines or ["- _No AI-introduced bugs or issues recorded yet._"]
 
 
 def generate_narrative_markdown() -> None:
     events = read_all_events()
-    sections = _build_sections(events)
-    counts = Counter(event.event_type for event in events)
     now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
 
     lines = [
@@ -254,7 +303,7 @@ def generate_narrative_markdown() -> None:
         "",
         "## Overview",
         f"This log documents how Generative AI ({AI_PLATFORM}) was leveraged as a true **Pair Programming** "
-        f"partner throughout the development of **{PROJECT_NAME}** — an enterprise Decision Automation Platform.",
+        f"partner throughout the development of **{PROJECT_NAME}**.",
         "",
         "Rather than using AI to generate a single-file prototype, AI was strictly instructed to adhere to "
         "**Enterprise Engineering Standards** (Clean Architecture, SOLID principles, and comprehensive test coverage).",
@@ -263,51 +312,48 @@ def generate_narrative_markdown() -> None:
         "",
         "---",
         "",
+        "## AI Tools Used",
+        "",
+        *_collect_ai_tools(events),
+        "",
+        "---",
+        "",
+        "## Key Prompts Provided",
+        "",
+        *_collect_key_prompts(events),
+        "",
+        "---",
+        "",
+        "## AI-Generated Code Accepted",
+        "",
+        *_collect_code_accepted(events),
+        "",
+        "---",
+        "",
+        "## AI-Generated Code Rejected or Modified",
+        "",
+        *_collect_code_rejected(events),
+        "",
+        "---",
+        "",
+        "## How AI Outputs Were Validated",
+        "",
+        *_collect_validations(events),
+        "",
+        "---",
+        "",
+        "## Bugs or Issues Introduced by AI & Resolutions",
+        "",
+        *_collect_bugs_and_resolutions(events),
+        "",
+        "---",
+        "",
+        "## Summary",
+        "",
+        "The AI was used to multiply the output of a Principal Engineer — not to produce throwaway prototypes. "
+        "This log tracks every tool invocation, key prompt, code acceptance decision, validation step, "
+        "and bug resolution to maintain full transparency over AI-assisted development.",
+        "",
     ]
-
-    if not sections:
-        lines.append("_No AI engineering sessions recorded yet. Interact with Cursor AI to populate this log._")
-        lines.append("")
-    else:
-        for index, section in enumerate(sections, start=1):
-            lines.append(f"## {index}. {section.title}")
-            lines.append("")
-            lines.append(f"**Challenge**: {section.challenge}")
-            lines.append("**AI Intervention**:")
-            if section.interventions:
-                for bullet in section.interventions:
-                    lines.append(f"- {bullet}")
-            else:
-                lines.append("- AI analyzed the request and provided architectural guidance.")
-            lines.append("")
-
-    total_interventions = sum(len(s.interventions) for s in sections)
-    lines.extend(
-        [
-            "---",
-            "",
-            "## Summary",
-            "",
-            f"The AI was not used to write a throwaway prototype; it was used to multiply the output of a "
-            f"Principal Engineer. Across **{len(sections)}** documented sessions and **{total_interventions}** "
-            f"recorded interventions, the AI handled architecture scaffolding, rapid pattern expansion, "
-            f"infrastructure debugging, and security hardening — enabling delivery of a production-ready "
-            f"enterprise platform in record time.",
-            "",
-            "### Session Statistics",
-            "",
-            "| Metric | Count |",
-            "|--------|-------|",
-            f"| Total events | {len(events)} |",
-            f"| Documented sessions | {len(sections)} |",
-            f"| Codebase searches | {counts.get('search', 0)} |",
-            f"| Files read | {counts.get('read', 0)} |",
-            f"| Files edited | {counts.get('edit', 0)} |",
-            f"| Shell / DevOps actions | {counts.get('shell', 0)} |",
-            f"| User prompts | {counts.get('prompt', 0)} |",
-            f"| Subagent tasks | {counts.get('task', 0)} |",
-            "",
-        ]
-    )
 
     MARKDOWN_PATH.write_text("\n".join(lines), encoding="utf-8")
