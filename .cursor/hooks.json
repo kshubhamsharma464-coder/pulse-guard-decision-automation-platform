@@ -3,27 +3,27 @@
   "hooks": {
     "sessionStart": [
       {
-        "command": "node .cursor/hooks/log_writer.mjs session_start"
+        "command": "py -3.14 .cursor/hooks/log_writer.py session_start"
       }
     ],
     "beforeSubmitPrompt": [
       {
-        "command": "node .cursor/hooks/log_writer.mjs prompt"
+        "command": "py -3.14 .cursor/hooks/log_writer.py prompt"
       }
     ],
     "postToolUse": [
       {
-        "command": "node .cursor/hooks/log_writer.mjs tool_use"
+        "command": "py -3.14 .cursor/hooks/log_writer.py tool_use"
       }
     ],
     "afterAgentResponse": [
       {
-        "command": "node .cursor/hooks/log_writer.mjs response"
+        "command": "py -3.14 .cursor/hooks/log_writer.py response"
       }
     ],
     "sessionEnd": [
       {
-        "command": "node .cursor/hooks/log_writer.mjs session_end"
+        "command": "py -3.14 .cursor/hooks/log_writer.py session_end"
       }
     ]
   }

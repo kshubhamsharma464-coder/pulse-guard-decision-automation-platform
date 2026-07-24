@@ -4,45 +4,41 @@ PulseGuard is an enterprise Decision Automation Platform enabling configurable r
 
 ## AI Engineering Log
 
-This project includes an **AI Engineering Log** that automatically records Cursor AI activity — searches, file reads/edits, shell commands, prompts, and responses.
+This project maintains a narrative **AI Engineering Log** — documenting how Cursor AI was leveraged as a true **Pair Programming** partner, adhering to **Enterprise Engineering Standards** (Clean Architecture, SOLID principles, and comprehensive test coverage).
 
 ### Log files
 
 | File | Purpose |
 |------|---------|
+| [`AI_ENGINEERING_LOG.md`](AI_ENGINEERING_LOG.md) | Narrative log with Challenge / AI Intervention sections (like a hackathon engineering diary) |
 | [`logs/ai-engineering-log.jsonl`](logs/ai-engineering-log.jsonl) | Structured source of truth (one JSON object per line) |
-| [`AI_ENGINEERING_LOG.md`](AI_ENGINEERING_LOG.md) | Auto-generated human-readable summary |
 
 ### How it works
 
-Cursor hooks in [`.cursor/hooks.json`](.cursor/hooks.json) call [`.cursor/hooks/log_writer.mjs`](.cursor/hooks/log_writer.mjs) (Node.js) after each AI action. The writer:
+Python Cursor hooks in [`.cursor/hooks.json`](.cursor/hooks.json) call [`.cursor/hooks/log_writer.py`](.cursor/hooks/log_writer.py) after each AI action:
 
 1. Appends a structured event to `logs/ai-engineering-log.jsonl`
-2. Regenerates `AI_ENGINEERING_LOG.md`
+2. Regenerates `AI_ENGINEERING_LOG.md` in narrative format
 
-### Example events
+**Requirements:** Python 3.14+ (hooks use `py -3.14` on Windows).
 
-When you search the codebase, a log entry like this is created:
+### Example narrative section
 
-```json
-{
-  "event_type": "search",
-  "summary": "Searched codebase for 'engineering log'",
-  "details": {
-    "tool": "Grep",
-    "query": "engineering.?log",
-    "path": ".",
-    "match_count": 0
-  }
-}
+```markdown
+## 1. AI Engineering Log & Audit Trail
+
+**Challenge**: Help me create a plan to implement a new feature: AI Engineering Log
+**AI Intervention**:
+- Utilized **Grep** to search the codebase for `engineering log` (0 matches).
+- Authored `.cursor/hooks/log_writer.py` adhering to enterprise engineering standards.
+- Dynamically shifted to **DevOps mode** — executed `py -3.14 scripts/regenerate_log_summary.py`.
 ```
 
-### Manual rebuild
-
-To regenerate the Markdown summary from JSONL:
+### Manual rebuild & test
 
 ```bash
-node scripts/regenerate_log_summary.mjs
+py -3.14 scripts/regenerate_log_summary.py
+py -3.14 scripts/test_ai_log.py
 ```
 
 ### Notes

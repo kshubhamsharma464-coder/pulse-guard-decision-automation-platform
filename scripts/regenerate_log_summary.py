@@ -8,11 +8,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / ".cursor" / "hooks"))
 
-from log_event import generate_markdown_summary  # noqa: E402
+from log_event import generate_narrative_markdown  # noqa: E402
 
 
 def main() -> int:
-    generate_markdown_summary()
+    generate_narrative_markdown()
     print("Regenerated AI_ENGINEERING_LOG.md")
     return 0
 

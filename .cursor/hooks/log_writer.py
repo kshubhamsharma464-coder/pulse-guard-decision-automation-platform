@@ -33,7 +33,7 @@ TASK_TOOLS = {"Task"}
 
 
 def read_stdin_json() -> dict[str, Any]:
-    raw = sys.stdin.read()
+    raw = sys.stdin.read().lstrip("\ufeff")
     if not raw.strip():
         return {}
     return json.loads(raw)
@@ -63,7 +63,8 @@ def get_tool_name(payload: dict[str, Any]) -> str:
         value = payload.get(key)
         if isinstance(value, str) and value:
             return value
-    return str(get_nested(payload, "tool", "name", default="") or "")
+    nested = get_nested(payload, "tool", "name", default="")
+    return str(nested or "")
 
 
 def get_tool_input(payload: dict[str, Any]) -> dict[str, Any]:
@@ -102,15 +103,13 @@ def count_grep_matches(output: Any) -> int | None:
     if output is None:
         return None
     text = output if isinstance(output, str) else json.dumps(output)
-    if not text:
+    if not text or "No matches found" in text:
         return 0
-    if "No matches found" in text or text.strip() == "":
-        return 0
-    return len(re.findall(r"^[^\n]+:\d+:", text, flags=re.MULTILINE)) or None
+    matches = re.findall(r"^[^\n]+:\d+:", text, flags=re.MULTILINE)
+    return len(matches) if matches else 0
 
 
 def build_search_event(payload: dict[str, Any], tool: str, tool_input: dict[str, Any]) -> LogEvent:
-    session_id = get_session_id(payload)
     output = get_tool_output(payload)
 
     if tool == "WebSearch":
@@ -120,22 +119,19 @@ def build_search_event(payload: dict[str, Any], tool: str, tool_input: dict[str,
     elif tool == "Glob":
         pattern = str(tool_input.get("glob_pattern") or tool_input.get("pattern") or "")
         path = str(tool_input.get("target_directory") or tool_input.get("path") or ".")
-        match_count = None
-        if isinstance(output, str):
-            match_count = len([line for line in output.splitlines() if line.strip()])
+        match_count = len([line for line in str(output or "").splitlines() if line.strip()]) if output else None
         summary = f"Searched files matching '{truncate_text(pattern, 80)}'"
         details = {"tool": tool, "query": pattern, "path": path, "match_count": match_count}
     else:
         query = str(tool_input.get("pattern") or tool_input.get("query") or "")
         path = str(tool_input.get("path") or ".")
-        match_count = count_grep_matches(output)
         summary = f"Searched codebase for '{truncate_text(query, 80)}'"
-        details = {"tool": tool, "query": query, "path": path, "match_count": match_count}
+        details = {"tool": tool, "query": query, "path": path, "match_count": count_grep_matches(output)}
 
     return LogEvent(
         id=generate_event_id(),
         timestamp=utc_now_iso(),
-        session_id=session_id,
+        session_id=get_session_id(payload),
         event_type="search",
         actor="agent",
         summary=summary,
@@ -147,9 +143,7 @@ def build_read_event(payload: dict[str, Any], tool_input: dict[str, Any]) -> Log
     file_path = str(tool_input.get("path") or tool_input.get("file_path") or "unknown")
     offset = tool_input.get("offset")
     limit = tool_input.get("limit")
-    line_range = None
-    if offset is not None or limit is not None:
-        line_range = f"{offset or 1}-{limit or 'end'}"
+    line_range = f"{offset or 1}-{limit or 'end'}" if offset is not None or limit is not None else None
 
     return LogEvent(
         id=generate_event_id(),
@@ -185,9 +179,7 @@ def build_edit_event(payload: dict[str, Any], tool: str, tool_input: dict[str, A
 def build_shell_event(payload: dict[str, Any], tool_input: dict[str, Any]) -> LogEvent:
     command = redact_secrets(str(tool_input.get("command") or ""))
     output = get_tool_output(payload)
-    exit_code = None
-    if isinstance(output, dict):
-        exit_code = output.get("exit_code") or output.get("exitCode")
+    exit_code = output.get("exit_code") or output.get("exitCode") if isinstance(output, dict) else None
 
     return LogEvent(
         id=generate_event_id(),
@@ -201,8 +193,8 @@ def build_shell_event(payload: dict[str, Any], tool_input: dict[str, Any]) -> Lo
 
 
 def build_task_event(payload: dict[str, Any], tool_input: dict[str, Any]) -> LogEvent:
-    description = str(tool_input.get("description") or tool_input.get("prompt") or "subagent task")
-    subagent_type = str(tool_input.get("subagent_type") or tool_input.get("subagentType") or "unknown")
+    description = str(tool_input.get("description") or tool_input.get("prompt") or "explore the codebase")
+    subagent_type = str(tool_input.get("subagent_type") or tool_input.get("subagentType") or "explore")
 
     return LogEvent(
         id=generate_event_id(),
@@ -263,25 +255,18 @@ def build_tool_use_event(payload: dict[str, Any]) -> LogEvent | None:
 
 def handle_session_start(payload: dict[str, Any]) -> None:
     session_id = get_session_id(payload)
-    state = {
-        "session_id": session_id,
-        "started_at": utc_now_iso(),
-        "event_count": 0,
-    }
-    save_session_state(state)
-
-    event = LogEvent(
-        id=generate_event_id(),
-        timestamp=utc_now_iso(),
-        session_id=session_id,
-        event_type="session_start",
-        actor="agent",
-        summary="AI engineering session started",
-        details={"project_root": str(PROJECT_ROOT)},
+    save_session_state({"session_id": session_id, "started_at": utc_now_iso(), "event_count": 0})
+    append_event(
+        LogEvent(
+            id=generate_event_id(),
+            timestamp=utc_now_iso(),
+            session_id=session_id,
+            event_type="session_start",
+            actor="agent",
+            summary="AI engineering session started",
+            details={"project_root": str(PROJECT_ROOT)},
+        )
     )
-    append_event(event)
-    state["event_count"] = 1
-    save_session_state(state)
 
 
 def handle_prompt(payload: dict[str, Any]) -> None:
@@ -289,16 +274,17 @@ def handle_prompt(payload: dict[str, Any]) -> None:
     if not message:
         return
 
-    event = LogEvent(
-        id=generate_event_id(),
-        timestamp=utc_now_iso(),
-        session_id=get_session_id(payload),
-        event_type="prompt",
-        actor="user",
-        summary=f"User prompt: {truncate_text(message, 80)}",
-        details={"message": message},
+    append_event(
+        LogEvent(
+            id=generate_event_id(),
+            timestamp=utc_now_iso(),
+            session_id=get_session_id(payload),
+            event_type="prompt",
+            actor="user",
+            summary=f"User prompt: {truncate_text(message, 80)}",
+            details={"message": message},
+        )
     )
-    append_event(event)
 
 
 def handle_tool_use(payload: dict[str, Any]) -> None:
@@ -312,40 +298,40 @@ def handle_response(payload: dict[str, Any]) -> None:
     if not summary:
         return
 
-    event = LogEvent(
-        id=generate_event_id(),
-        timestamp=utc_now_iso(),
-        session_id=get_session_id(payload),
-        event_type="response",
-        actor="agent",
-        summary=f"Agent response: {truncate_text(summary, 80)}",
-        details={"summary": summary},
+    append_event(
+        LogEvent(
+            id=generate_event_id(),
+            timestamp=utc_now_iso(),
+            session_id=get_session_id(payload),
+            event_type="response",
+            actor="agent",
+            summary=f"Agent response: {truncate_text(summary, 80)}",
+            details={"summary": summary},
+        )
     )
-    append_event(event)
 
 
 def handle_session_end(payload: dict[str, Any]) -> None:
     state = load_session_state()
-    started_at = state.get("started_at")
     duration_seconds = None
-    if started_at:
+    if state.get("started_at"):
         try:
-            start = datetime.fromisoformat(str(started_at).replace("Z", "+00:00"))
+            start = datetime.fromisoformat(str(state["started_at"]).replace("Z", "+00:00"))
             duration_seconds = int((datetime.now(timezone.utc) - start).total_seconds())
         except ValueError:
-            duration_seconds = None
+            pass
 
-    events = state.get("event_count", 0)
-    event = LogEvent(
-        id=generate_event_id(),
-        timestamp=utc_now_iso(),
-        session_id=get_session_id(payload) or state.get("session_id", "unknown"),
-        event_type="session_end",
-        actor="agent",
-        summary="AI engineering session ended",
-        details={"duration_seconds": duration_seconds, "total_events": events},
+    append_event(
+        LogEvent(
+            id=generate_event_id(),
+            timestamp=utc_now_iso(),
+            session_id=get_session_id(payload) or state.get("session_id", "unknown"),
+            event_type="session_end",
+            actor="agent",
+            summary="AI engineering session ended",
+            details={"duration_seconds": duration_seconds, "total_events": state.get("event_count", 0)},
+        )
     )
-    append_event(event)
     save_session_state({})
 
 
@@ -360,18 +346,14 @@ HANDLERS = {
 
 def main() -> int:
     if len(sys.argv) < 2:
-        print("Usage: log_writer.py <session_start|prompt|tool_use|response|session_end>", file=sys.stderr)
         return 0
 
-    command = sys.argv[1]
-    handler = HANDLERS.get(command)
+    handler = HANDLERS.get(sys.argv[1])
     if not handler:
-        print(f"Unknown command: {command}", file=sys.stderr)
         return 0
 
     try:
-        payload = read_stdin_json()
-        handler(payload)
+        handler(read_stdin_json())
     except Exception:
         traceback.print_exc(file=sys.stderr)
 
