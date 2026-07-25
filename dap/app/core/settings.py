@@ -59,6 +59,12 @@ class Settings(BaseSettings):
     ai_api_key: str = "local-not-required"
     ai_model: str = "llama3"
     ai_timeout_seconds: float = 30.0
+    # Off by default so importing app/infrastructure/ai/usage_logger.py never
+    # writes to the repo, or affects a test run, unless explicitly turned on.
+    # When true, every generate_rule/document_rule/explain_decision call made
+    # through create_ai_provider()'s returned instance appends a structured
+    # entry to docs/ai-usage-log.md.
+    ai_usage_log_enabled: bool = False
 
     # -- Auth (Phase 2) --------------------------------------------------
     jwt_secret: str = "dev-only-insecure-secret-change-in-production"

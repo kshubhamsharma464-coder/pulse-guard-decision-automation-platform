@@ -1,0 +1,73 @@
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: teledecision-orchestrator:latest
+    ports:
+      - "${PORT:-8000}:8000"
+    environment:
+      PYTHONUNBUFFERED: "1"
+      # PERSISTENCE_BACKEND defaults to "memory" everywhere else in this
+      # project; set to "postgres" here deliberately, since running under
+      # compose with a real db service alongside is exactly the scenario
+      # persistence is for. Override in a .env file or `docker compose run
+      # -e PERSISTENCE_BACKEND=memory` to go back to the zero-dependency
+      # in-memory behavior even under Docker.
+      PERSISTENCE_BACKEND: "${PERSISTENCE_BACKEND:-postgres}"
+      RULE_SOURCE: "${RULE_SOURCE:-static}"
+      DATABASE_URL: "postgresql+psycopg2://decisiox:decisiox@db:5432/decisiox"
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: decisiox
+      POSTGRES_PASSWORD: decisiox
+      POSTGRES_DB: decisiox
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - decisiox_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U decisiox -d decisiox"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  decisiox_pgdata:
+
+# The `api` container itself does NOT run migrations on boot -- that's a
+# deliberate choice (auto-migrating on every container start is a common
+# source of production incidents when multiple replicas race to migrate at
+# once). Instead, ./docker-run.sh runs these as one-off `docker compose run`
+# steps against `db` after it's healthy, before starting `api`, every time
+# you run it (each step is idempotent, so this is always safe):
+#
+#   docker compose run --rm api alembic upgrade head
+#   docker compose run --rm api python scripts/seed_base_rule_pack.py
+#   docker compose run --rm api python scripts/seed_escalation_policies.py
+#   docker compose run --rm api python scripts/seed_default_roles_permissions.py
+#
+# If you're starting the stack some other way (not via ./docker-run.sh),
+# run these yourself once after `db` is healthy.
+#
+# See docs/persistence.md for what each script does and why the hot
+# incident-evaluation path still reads from the in-memory rule packs even
+# with PERSISTENCE_BACKEND=postgres, docs/auth.md for the auth/RBAC model
+# the last seed script populates, and docs/rule-management.md for how to
+# switch the hot path itself to the Postgres-backed dynamic rule source
+# (RULE_SOURCE=dynamic) once a rule pack has been created/published/
+# activated through POST /api/v1/rule-packs.
