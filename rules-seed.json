@@ -1,0 +1,351 @@
+{
+  "ruleSet": {
+    "name": "noc-default",
+    "version": 1,
+    "region": null,
+    "status": "active"
+  },
+  "rules": [
+    {
+      "ruleCode": "R008",
+      "name": "Emergency services network affected",
+      "category": "EMERGENCY",
+      "description": "Incident impacts infrastructure carrying emergency call routing (112/911 equivalents) or hospital/emergency-service dependent links.",
+      "priorityWeight": 100,
+      "conflictGroup": "priority",
+      "isSuppressor": false,
+      "nonSuppressible": true,
+      "conditions": { "==": [{ "var": "emergencyServicesAffected" }, true] },
+      "actions": {
+        "priority": "Critical",
+        "dispatchEngineer": true,
+        "notifyNOC": true,
+        "rerouteTraffic": true,
+        "targetSLA": "10 minutes",
+        "customerNotification": true,
+        "regulatoryReportingRequired": true
+      }
+    },
+    {
+      "ruleCode": "R017",
+      "name": "Mass outage / incident storm",
+      "category": "SUPPRESSION",
+      "description": "More than 50 distinct incidents in the same region within a 10-minute window. Declares a Major Incident, merges duplicates, and throttles individual notifications.",
+      "priorityWeight": 100,
+      "conflictGroup": "priority",
+      "isSuppressor": true,
+      "nonSuppressible": false,
+      "conditions": { ">": [{ "var": "context.regionIncidentCount10Min" }, 50] },
+      "actions": {
+        "priority": "Critical",
+        "declareMajorIncident": true,
+        "mergeDuplicateIncidents": true,
+        "suppressIndividualCustomerNotifications": true,
+        "notifyExecutiveEscalation": true,
+        "notifyNOC": true
+      }
+    },
+    {
+      "ruleCode": "R020",
+      "name": "Emergency alert broadcast dependency affected",
+      "category": "REGULATORY",
+      "description": "Cell Broadcast / emergency alert system dependency impacted — carries regulatory reporting obligations.",
+      "priorityWeight": 98,
+      "conflictGroup": "priority",
+      "isSuppressor": false,
+      "nonSuppressible": true,
+      "conditions": { "==": [{ "var": "emergencyAlertSystemAffected" }, true] },
+      "actions": {
+        "priority": "Critical",
+        "regulatoryReportingRequired": true,
+        "regulatoryReportingDeadlineHours": 4,
+        "notifyNOC": true,
+        "dispatchEngineer": true
+      }
+    },
+    {
+      "ruleCode": "R011",
+      "name": "Active planned maintenance window",
+      "category": "SUPPRESSION",
+      "description": "Incident falls inside an approved, active maintenance window for the same tower/segment. Suppresses dispatch and customer-facing noise unless a non-suppressible rule also matched.",
+      "priorityWeight": 95,
+      "conflictGroup": "dispatch-suppression",
+      "isSuppressor": true,
+      "nonSuppressible": false,
+      "conditions": { "==": [{ "var": "maintenanceWindow" }, true] },
+      "actions": {
+        "dispatchEngineer": false,
+        "customerNotification": false,
+        "autoCloseAsExpected": true,
+        "notifyNOC": false
+      }
+    },
+    {
+      "ruleCode": "R015",
+      "name": "Suspected DDoS / traffic anomaly",
+      "category": "SECURITY",
+      "description": "Sudden traffic spike beyond 300% of rolling baseline combined with a multi-source-IP anomaly flag from the monitoring system.",
+      "priorityWeight": 90,
+      "conflictGroup": "priority",
+      "isSuppressor": false,
+      "nonSuppressible": true,
+      "conditions": {
+        "and": [
+          { ">": [{ "var": "trafficSpikePercent" }, 300] },
+          { "==": [{ "var": "anomalyFlag" }, true] }
+        ]
+      },
+      "actions": {
+        "priority": "Critical",
+        "routeToSecurityTeam": true,
+        "isolateNetworkSegment": true,
+        "notifyNOC": true
+      }
+    },
+    {
+      "ruleCode": "R001",
+      "name": "Mass user impact",
+      "category": "IMPACT",
+      "description": "More than 10,000 users affected by a single incident.",
+      "priorityWeight": 90,
+      "conflictGroup": "priority",
+      "isSuppressor": false,
+      "nonSuppressible": false,
+      "conditions": { ">": [{ "var": "affectedUsers" }, 10000] },
+      "actions": {
+        "priority": "Critical",
+        "dispatchEngineer": true,
+        "notifyNOC": true,
+        "rerouteTraffic": true,
+        "customerNotification": true
+      }
+    },
+    {
+      "ruleCode": "R007",
+      "name": "VIP customers impacted",
+      "category": "VIP",
+      "description": "One or more VIP-tier customers affected by the incident.",
+      "priorityWeight": 85,
+      "conflictGroup": "priority",
+      "isSuppressor": false,
+      "nonSuppressible": false,
+      "conditions": { "==": [{ "var": "vipCustomersAffected" }, true] },
+      "actions": {
+        "priority": "Critical",
+        "notifyAccountManager": true,
+        "customerNotification": true
+      }
+    },
+    {
+      "ruleCode": "R004",
+      "name": "Gold SLA customer",
+      "category": "SLA",
+      "description": "Incident affects customers on a Gold SLA tier, which contractually requires a 15-minute response target.",
+      "priorityWeight": 80,
+      "conflictGroup": "sla-target",
+      "isSuppressor": false,
+      "nonSuppressible": false,
+      "conditions": { "==": [{ "var": "slaTier" }, "Gold"] },
+      "actions": {
+        "targetSLA": "15 minutes",
+        "priority": "Critical"
+      }
+    },
+    {
+      "ruleCode": "R014",
+      "name": "Fiber cut — specialist routing",
+      "category": "IMPACT",
+      "description": "Fiber cuts are routed to the specialist fiber team immediately regardless of SLA tier, because backbone cuts cascade quickly.",
+      "priorityWeight": 75,
+      "conflictGroup": null,
+      "isSuppressor": false,
+      "nonSuppressible": false,
+      "conditions": { "==": [{ "var": "incidentType" }, "Fiber Cut"] },
+      "actions": {
+        "dispatchEngineer": true,
+        "routeToTeam": "fiber-specialist",
+        "notifyNOC": true
+      }
+    },
+    {
+      "ruleCode": "R012",
+      "name": "High network congestion",
+      "category": "CAPACITY",
+      "description": "Network load above 90% capacity triggers automatic traffic rerouting.",
+      "priorityWeight": 70,
+      "conflictGroup": null,
+      "isSuppressor": false,
+      "nonSuppressible": false,
+      "conditions": { ">": [{ "var": "networkLoad" }, 90] },
+      "actions": {
+        "rerouteTraffic": true,
+        "notifyNOC": true
+      }
+    },
+    {
+      "ruleCode": "R002",
+      "name": "Moderate user impact",
+      "category": "IMPACT",
+      "description": "Between 1,000 and 10,000 users affected.",
+      "priorityWeight": 60,
+      "conflictGroup": "priority",
+      "isSuppressor": false,
+      "nonSuppressible": false,
+      "conditions": {
+        "and": [
+          { ">": [{ "var": "affectedUsers" }, 1000] },
+          { "<=": [{ "var": "affectedUsers" }, 10000] }
+        ]
+      },
+      "actions": {
+        "priority": "High",
+        "dispatchEngineer": true,
+        "notifyNOC": true
+      }
+    },
+    {
+      "ruleCode": "R018",
+      "name": "Flapping tower",
+      "category": "SUPPRESSION",
+      "description": "Same tower reports up/down transitions more than 5 times within 1 hour. Suppresses repeat dispatch storms and opens a single root-cause ticket instead.",
+      "priorityWeight": 60,
+      "conflictGroup": "dispatch-suppression",
+      "isSuppressor": true,
+      "nonSuppressible": false,
+      "conditions": { ">": [{ "var": "context.towerFlapCount1Hour" }, 5] },
+      "actions": {
+        "dispatchEngineer": false,
+        "openRootCauseInvestigation": true,
+        "notifyNOC": true
+      }
+    },
+    {
+      "ruleCode": "R009",
+      "name": "Repeated tower failures (chronic)",
+      "category": "HISTORICAL",
+      "description": "Tower has failed more than 3 times in the trailing 30 days — signals a hardware/infra problem, not a one-off event.",
+      "priorityWeight": 55,
+      "conflictGroup": null,
+      "isSuppressor": false,
+      "nonSuppressible": false,
+      "conditions": { ">": [{ "var": "historicalFailures" }, 3] },
+      "actions": {
+        "flagForInfrastructureReview": true,
+        "dispatchSeniorEngineer": true
+      }
+    },
+    {
+      "ruleCode": "R016",
+      "name": "Competitive churn risk",
+      "category": "COMPETITIVE_RISK",
+      "description": "Region has repeated incidents in the trailing 7 days and overlaps with an area where a competitor (e.g. Vodafone, O2, 1&1) is running an active retention/acquisition campaign — customers here are more likely to switch providers after a bad experience.",
+      "priorityWeight": 50,
+      "conflictGroup": null,
+      "isSuppressor": false,
+      "nonSuppressible": false,
+      "conditions": {
+        "and": [
+          { ">": [{ "var": "context.regionIncidentCount7Days" }, 3] },
+          { "==": [{ "var": "context.competitorCampaignActiveInRegion" }, true] }
+        ]
+      },
+      "actions": {
+        "notifyRetentionTeam": true,
+        "priorityBumpOneLevel": true
+      }
+    },
+    {
+      "ruleCode": "R013",
+      "name": "Peak business hours amplifier",
+      "category": "EXTERNAL_CONTEXT",
+      "description": "Incidents during regional peak business hours (09:00-21:00 local) affecting more than 1,000 users are bumped up one priority tier because business/customer impact is highest.",
+      "priorityWeight": 45,
+      "conflictGroup": null,
+      "isSuppressor": false,
+      "nonSuppressible": false,
+      "conditions": {
+        "and": [
+          { "==": [{ "var": "context.isPeakHoursLocal" }, true] },
+          { ">": [{ "var": "affectedUsers" }, 1000] }
+        ]
+      },
+      "actions": {
+        "priorityBumpOneLevel": true
+      }
+    },
+    {
+      "ruleCode": "R010",
+      "name": "Severe weather dispatch delay",
+      "category": "EXTERNAL_CONTEXT",
+      "description": "Severe weather in the incident's region makes field dispatch unsafe/impractical. Delays physical dispatch and pauses SLA-breach penalties without downgrading customer communication.",
+      "priorityWeight": 40,
+      "conflictGroup": "dispatch-suppression",
+      "isSuppressor": true,
+      "nonSuppressible": false,
+      "conditions": { "==": [{ "var": "weatherSeverity" }, "Severe"] },
+      "actions": {
+        "dispatchEngineer": false,
+        "delayFieldDispatch": true,
+        "pauseSLAClock": true,
+        "customerNotification": true,
+        "customerNotificationReason": "weather_delay"
+      }
+    },
+    {
+      "ruleCode": "R021",
+      "name": "Social / PR escalation risk",
+      "category": "COMPETITIVE_RISK",
+      "description": "Negative social-media mention volume about the outage is spiking — escalate to Communications/PR before it becomes a brand/competitive story.",
+      "priorityWeight": 40,
+      "conflictGroup": null,
+      "isSuppressor": false,
+      "nonSuppressible": false,
+      "conditions": { ">": [{ "var": "context.negativeSocialMentionSpike" }, true] },
+      "actions": {
+        "notifyPRTeam": true,
+        "customerNotification": true
+      }
+    },
+    {
+      "ruleCode": "R005",
+      "name": "Silver SLA customer",
+      "category": "SLA",
+      "description": "Silver SLA tier — 60-minute response target.",
+      "priorityWeight": 50,
+      "conflictGroup": "sla-target",
+      "isSuppressor": false,
+      "nonSuppressible": false,
+      "conditions": { "==": [{ "var": "slaTier" }, "Silver"] },
+      "actions": { "targetSLA": "60 minutes" }
+    },
+    {
+      "ruleCode": "R003",
+      "name": "Minor user impact",
+      "category": "IMPACT",
+      "description": "Fewer than 1,000 users affected.",
+      "priorityWeight": 20,
+      "conflictGroup": "priority",
+      "isSuppressor": false,
+      "nonSuppressible": false,
+      "conditions": { "<": [{ "var": "affectedUsers" }, 1000] },
+      "actions": { "priority": "Low", "notifyNOC": true }
+    },
+    {
+      "ruleCode": "R006",
+      "name": "Bronze / no SLA",
+      "category": "SLA",
+      "description": "Default SLA target when no tier is set or tier is Bronze.",
+      "priorityWeight": 20,
+      "conflictGroup": "sla-target",
+      "isSuppressor": false,
+      "nonSuppressible": false,
+      "conditions": {
+        "or": [
+          { "==": [{ "var": "slaTier" }, "Bronze"] },
+          { "==": [{ "var": "slaTier" }, null] }
+        ]
+      },
+      "actions": { "targetSLA": "4 hours" }
+    }
+  ]
+}

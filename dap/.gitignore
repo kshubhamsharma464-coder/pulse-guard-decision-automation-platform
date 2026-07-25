@@ -1,8 +1,6 @@
-# Python
 __pycache__/
 *.pyc
 *.pyo
-*.egg-info/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
@@ -10,23 +8,16 @@ __pycache__/
 htmlcov/
 dist/
 build/
-
-# Virtual environments
 .venv/
 venv/
 env/
-
-# Env / secrets
+*.egg-info/
 .env
 .env.*.local
-
-# Databases
 *.db
 *.sqlite3
-
-# Editor / OS
-.vscode/
-.idea/
 .DS_Store
 Thumbs.db
 *.swp
+.vscode/
+.idea/
