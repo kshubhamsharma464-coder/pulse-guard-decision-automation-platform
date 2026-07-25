@@ -1,4 +1,4 @@
-# TeleDecision Orchestrator -- working vertical slice
+# Pulse Guard Decision Automation Platform -- working vertical slice
 
 This is the first buildable slice of the Telecom Network Incident Decision
 Automation Platform, built per `architecture-review.md`'s recommended
