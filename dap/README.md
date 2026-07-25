@@ -1,4 +1,4 @@
-# TeleDecision Orchestrator -- working vertical slice
+# Pulse Guard Decision Automation Platform -- working vertical slice
 
 This is the first buildable slice of the Telecom Network Incident Decision
 Automation Platform, built per `architecture-review.md`'s recommended
@@ -285,6 +285,62 @@ curl -X POST http://127.0.0.1:8000/api/v1/incidents/evaluate \
     "historicalFailures": 4, "incidentType": "Tower Down"
   }'
 ```
+
+## Challenges faced building this
+
+- **The original folder structure and `tradeoffs.md` had drifted from the
+  actual design doc.** A dedicated architecture review (`docs/architecture-review.md`)
+  caught real gaps before implementation: the Context Aggregation Layer was
+  named in `tradeoffs.md` #10 but had no module; there was no `jobs/`/scheduler
+  layer even though the SLA-breach sweep and escalation chain are
+  fundamentally time-based background processes, not request handlers;
+  `manual_overrides` and `escalation_events` had schema tables but no domain
+  entities or use cases; and three `tradeoffs.md` entries (#4 conflict
+  resolution, #12 rule versioning, #13 confidence score) described a simpler
+  system than the one already committed to elsewhere, which would have been
+  an obvious inconsistency to any reviewer reading both documents.
+- **Conflict resolution needed two different signals, not one.** A single
+  categorical `priority` field can't both give a deterministic hard-stop for
+  safety-critical rules *and* rank triage urgency continuously -- summing
+  scores for priority would let a Critical-band incident whose individual
+  signals only add up to 40 points get diluted below rules that shouldn't
+  outrank it. The fix was keeping categorical `priority` (weight/specificity/
+  recency resolved) and an additive `riskScore` banding as two parallel
+  outputs instead of collapsing them into one.
+- **The hand-traced INC-101 walkthrough in the design doc was wrong.**
+  Running the exact example through the real engine surfaced that
+  `networkLoad: 94` and `historicalFailures: 4` legitimately also trigger
+  R012 (congestion) and R009 (chronic failures) -- both missing from the
+  original manual trace. `test_inc_101_matches_expected_rules` now locks in
+  the corrected, actually-computed behavior instead of the documented one,
+  which is exactly the kind of drift a fixture-backed test catches before it
+  reaches a demo.
+- **`httpx.post()`'s module-level function has no `transport` parameter.**
+  The first draft of the AI providers called it directly, which is fine in
+  production but made them impossible to test without a live LLM endpoint --
+  `httpx.MockTransport` only plugs into `httpx.Client(transport=...)`. Fixed
+  by having each provider construct its own `httpx.Client` and accept an
+  optional injected transport, so the real HTTP-call/JSON-parsing/error-
+  handling code paths are exercised in tests, not just mocked around.
+- **A Clean Architecture layering violation slipped in and worked anyway.**
+  `ExplainDecisionAIUseCase` initially imported a serializer from the
+  interfaces layer -- application depending on interfaces inverts the
+  dependency rule, even though it happened not to cause a circular import at
+  runtime. Fixed by having the use case build its own small local dict
+  instead of reaching outward for a coincidentally similar-shaped function.
+  Easy to miss exactly because it worked.
+- **Cache invalidation on rule-pack activation is TTL-based, which means a
+  propagation-delay window is a real, accepted tradeoff, not an oversight** --
+  worth stating explicitly (10s TTL) rather than leaving it implicit, since a
+  rule pack published *in response to an active incident storm* is the worst
+  possible moment for different replicas to be evaluating against different
+  rule-pack versions.
+- **No live LLM endpoint was reachable in the build environment at all**
+  (no outbound network access), which forced building `StubAIProvider` as a
+  real, fully-tested implementation first, and designing every LLM-backed
+  provider against the exact same interface with an injectable transport --
+  so the entire AI-assisted authoring feature has full test coverage despite
+  never once calling a real model during development.
 
 ## One thing this build already caught
 
