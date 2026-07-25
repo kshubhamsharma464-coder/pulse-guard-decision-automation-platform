@@ -16,6 +16,7 @@ services:
       # -e PERSISTENCE_BACKEND=memory` to go back to the zero-dependency
       # in-memory behavior even under Docker.
       PERSISTENCE_BACKEND: "${PERSISTENCE_BACKEND:-postgres}"
+      RULE_SOURCE: "${RULE_SOURCE:-static}"
       DATABASE_URL: "postgresql+psycopg2://decisiox:decisiox@db:5432/decisiox"
     depends_on:
       db:
