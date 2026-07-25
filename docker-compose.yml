@@ -1,4 +1,3 @@
-
 services:
   api:
     build:
@@ -18,6 +17,14 @@ services:
       PERSISTENCE_BACKEND: "${PERSISTENCE_BACKEND:-postgres}"
       RULE_SOURCE: "${RULE_SOURCE:-static}"
       DATABASE_URL: "postgresql+psycopg2://decisiox:decisiox@db:5432/decisiox"
+    # Overrides the Dockerfile's CMD (docker-entrypoint.sh, which migrates +
+    # seeds + serves on every boot -- the right default for a single-container
+    # target like Railway with no separate pre-start step available). Locally,
+    # docker-run.sh already runs migrate/seed as one-off `docker compose run`
+    # steps before this container starts (see the note below), so the api
+    # container itself should just serve -- keeps the "no auto-migrate on
+    # boot" guarantee that comment describes.
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
     depends_on:
       db:
         condition: service_healthy
