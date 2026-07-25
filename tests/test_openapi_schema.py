@@ -8,7 +8,7 @@ def test_openapi_json_is_served_and_well_formed():
     resp = client.get("/openapi.json")
     assert resp.status_code == 200
     spec = resp.json()
-    assert spec["info"]["title"] == "TeleDecision Orchestrator"
+    assert spec["info"]["title"] == "Pulse Guard"
 
     expected_paths = {
         "/api/v1/incidents/evaluate",

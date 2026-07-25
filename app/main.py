@@ -53,9 +53,9 @@ def custom_openapi():
 
 
 app = FastAPI(
-    title="TeleDecision Orchestrator",
+    title="Pulse Guard",
     description=(
-        "**Telecom Network Incident Decision Automation Platform.** Converts raw "
+        "**Pulse Guard** Converts raw "
         "network telemetry into governed, explainable, auditable operational "
         "decisions -- priority, dispatch, reroute, notifications, execution plan "
         "-- through versioned, runtime-configurable business rules rather than "

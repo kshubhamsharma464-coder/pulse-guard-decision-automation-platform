@@ -1,4 +1,4 @@
-# TeleDecision Orchestrator — Telecom Network Incident Decision Automation Platform
+# Pulse Guard — Telecom Network Incident Decision Automation Platform
 
 Companion files: `schema.sql` (Postgres/JSONB schema, v3), `rules-seed.json` (35 seeded rules across 9 families, load directly into the `rules` table).
 
