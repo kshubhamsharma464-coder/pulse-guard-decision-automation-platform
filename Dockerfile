@@ -34,6 +34,10 @@ COPY migrations ./migrations
 COPY scripts ./scripts
 COPY alembic.ini .
 
+COPY docker-entrypoint.sh .
+
+RUN chmod +x docker-entrypoint.sh
+
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1
